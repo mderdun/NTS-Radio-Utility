@@ -68,7 +68,13 @@ struct SettingsView: View {
 
             // About section
             VStack(alignment: .leading, spacing: 2) {
-                Text("NTS Radio Utility v1.0")
+                Text("NTS Radio Utility")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Text("Fan-made companion for nts.live")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Text("All streams, artwork & shows © NTS Radio Ltd")
                     .font(.system(size: 9))
                     .foregroundColor(.secondary)
             }

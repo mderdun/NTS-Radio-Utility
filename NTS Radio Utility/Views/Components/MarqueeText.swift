@@ -7,76 +7,112 @@
 
 import SwiftUI
 
+private struct MarqueeContentWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct MarqueeText: View {
     let text: String
     let font: Font
     let color: Color
-    @State private var animate = false
-    @State private var textWidth: CGFloat = 0
-    @State private var containerWidth: CGFloat = 0
+    var speed: CGFloat = 36
+    var gap: CGFloat = 32
+    var initialDelay: TimeInterval = 1.2
 
-    var needsScrolling: Bool {
-        textWidth > containerWidth && containerWidth > 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var animationStartDate = Date()
+
+    private var needsScrolling: Bool {
+        contentWidth > containerWidth && containerWidth > 0
+    }
+
+    private var travelDistance: CGFloat {
+        contentWidth + gap
+    }
+
+    private var animationDuration: TimeInterval {
+        guard needsScrolling, travelDistance > 0 else { return 0 }
+        return TimeInterval(travelDistance / speed)
     }
 
     var body: some View {
         GeometryReader { geometry in
-            HStack(spacing: 0) {
-                Text(text)
-                    .font(font)
-                    .foregroundColor(color)
-                    .lineLimit(1)
-                    .fixedSize()
+            let width = geometry.size.width
 
-                if needsScrolling {
-                    // Add visible gap separator
-                    Spacer()
-                        .frame(width: 12)
+            ZStack(alignment: .leading) {
+                if needsScrolling, animationDuration > 0 {
+                    TimelineView(.animation) { timeline in
+                        let now = timeline.date
+                        let elapsed = max(0, now.timeIntervalSince(animationStartDate))
+                        let distance = travelDistance
+                        let duration = animationDuration
 
-                    Circle()
-                        .fill(color.opacity(0.4))
-                        .frame(width: 3, height: 3)
+                        let progress = distance > 0 && duration > 0
+                            ? (elapsed.truncatingRemainder(dividingBy: duration) / duration)
+                            : 0
+                        let offset = -distance * progress
 
-                    Spacer()
-                        .frame(width: 12)
-
+                        HStack(spacing: gap) {
+                            Text(text)
+                                .font(font)
+                                .foregroundColor(color)
+                                .lineLimit(1)
+                                .fixedSize()
+                            Text(text)
+                                .font(font)
+                                .foregroundColor(color)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        .frame(width: width, alignment: .leading)
+                        .offset(x: offset)
+                    }
+                } else {
                     Text(text)
                         .font(font)
                         .foregroundColor(color)
                         .lineLimit(1)
-                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .background(
-                GeometryReader { textGeometry in
-                    Color.clear
-                        .onAppear {
-                            textWidth = textGeometry.size.width / (needsScrolling ? 2 : 1)
-                            containerWidth = geometry.size.width
-                        }
-                        .onChange(of: text) {
-                            animate = false
-                            DispatchQueue.main.async {
-                                textWidth = textGeometry.size.width / (needsScrolling ? 2 : 1)
-                                containerWidth = geometry.size.width
-                                animate = true
-                            }
-                        }
-                }
-            )
-            .offset(x: needsScrolling && animate ? -(textWidth + 20) : 0)
             .onAppear {
-                if needsScrolling {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        animate = true
-                    }
-                }
+                containerWidth = width
             }
-            .animation(
-                needsScrolling ? .linear(duration: Double(textWidth) / 20).repeatForever(autoreverses: false) : nil,
-                value: animate
-            )
+            .onChange(of: width, initial: false) { _, newWidth in
+                containerWidth = newWidth
+            }
         }
         .clipped()
+        .background(measurementView)
+        .onPreferenceChange(MarqueeContentWidthKey.self) { newWidth in
+            if abs(contentWidth - newWidth) > 0.5 {
+                contentWidth = newWidth
+                resetAnimation()
+            }
+        }
+        .onChange(of: text, initial: false) { _, _ in
+            resetAnimation()
+        }
+    }
+
+    private var measurementView: some View {
+        Text(text)
+            .font(font)
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundColor(.clear)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: MarqueeContentWidthKey.self, value: proxy.size.width)
+                }
+            )
+    }
+
+    private func resetAnimation() {
+        animationStartDate = Date().addingTimeInterval(initialDelay)
     }
 }

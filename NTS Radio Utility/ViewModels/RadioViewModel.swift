@@ -14,30 +14,14 @@ class RadioViewModel: ObservableObject {
     @Published var nts2: Channel?
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var menuBarText = "NTS"
+    @Published var menuBarFullText = "NTS"
+    @Published var volumeLevel: Double = 0.5
 
     let audioPlayer = AudioPlayerService.shared
     private let apiService = NTSAPIService.shared
     private var showEndTimer: Timer?
     private var fallbackTimer: Timer?
-    private var marqueeTimer: Timer?
-    private let marqueeOffsetLock = NSLock()
-    private nonisolated(unsafe) var _marqueeOffset = 0
-    private var fullMenuBarText = ""
     private var cancellables = Set<AnyCancellable>()
-
-    nonisolated private var marqueeOffset: Int {
-        get {
-            marqueeOffsetLock.lock()
-            defer { marqueeOffsetLock.unlock() }
-            return _marqueeOffset
-        }
-        set {
-            marqueeOffsetLock.lock()
-            _marqueeOffset = newValue
-            marqueeOffsetLock.unlock()
-        }
-    }
 
     var currentChannel: Channel? {
         audioPlayer.currentStation == 1 ? nts1 : nts2
@@ -48,7 +32,7 @@ class RadioViewModel: ObservableObject {
     }
 
     var volume: Float {
-        audioPlayer.volume
+        Float(volumeLevel)
     }
 
     var currentStation: Int {
@@ -57,6 +41,7 @@ class RadioViewModel: ObservableObject {
 
     init() {
         setupBindings()
+        volumeLevel = Double(audioPlayer.volume)
         Task {
             await fetchLiveData()
         }
@@ -64,10 +49,20 @@ class RadioViewModel: ObservableObject {
     }
 
     private func setupBindings() {
-        // Subscribe to audio player changes
         audioPlayer.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        audioPlayer.$volume
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newValue in
+                guard let self else { return }
+                let doubleValue = Double(newValue)
+                if abs(self.volumeLevel - doubleValue) > 0.0001 {
+                    self.volumeLevel = doubleValue
+                }
             }
             .store(in: &cancellables)
     }
@@ -81,10 +76,7 @@ class RadioViewModel: ObservableObject {
             nts1 = liveResponse.nts1
             nts2 = liveResponse.nts2
 
-            // Schedule next refresh at show end time
             scheduleShowEndRefresh()
-
-            // Update menu bar text
             updateMenuBarText()
         } catch {
             errorMessage = error.localizedDescription
@@ -103,42 +95,93 @@ class RadioViewModel: ObservableObject {
     }
 
     private func scheduleShowEndRefresh() {
-        // Cancel existing timer
         showEndTimer?.invalidate()
 
         let now = Date()
-        var nextRefresh: Date?
+        var nextDelay: TimeInterval?
+        var staleDetected = false
 
-        // Check NTS1 end time
-        if let end1 = nts1?.now.endDate, end1 > now {
-            nextRefresh = end1
-        }
+        func evaluate(channel: Channel?) {
+            guard let show = channel?.now else { return }
+            guard let endDate = show.endDate else { return }
 
-        // Check NTS2 end time
-        if let end2 = nts2?.now.endDate, end2 > now {
-            if let current = nextRefresh {
-                // Use earliest end time
-                nextRefresh = min(current, end2)
+            if endDate > now {
+                let desiredDelay = endDate.addingTimeInterval(5).timeIntervalSince(now)
+                nextDelay = nextDelay.map { min($0, desiredDelay) } ?? desiredDelay
             } else {
-                nextRefresh = end2
+                staleDetected = true
             }
         }
 
-        // Schedule refresh 5 seconds after show ends
-        if let refresh = nextRefresh {
-            let delay = refresh.addingTimeInterval(5).timeIntervalSince(now)
-            if delay > 0 {
-                showEndTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        await self?.fetchLiveData()
-                    }
+        evaluate(channel: nts1)
+        evaluate(channel: nts2)
+
+        showEndTimer?.invalidate()
+
+        if staleDetected {
+            if promoteStaleShowsIfPossible(referenceDate: now) {
+                updateMenuBarText()
+                scheduleShowEndRefresh()
+                return
+            }
+
+            let retryDelay: TimeInterval = 15
+            #if DEBUG
+            print("[RadioViewModel] Stale show data detected, retrying in \(retryDelay)s")
+            #endif
+            let timer = Timer(timeInterval: retryDelay, repeats: false) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.fetchLiveData()
                 }
             }
+            RunLoop.main.add(timer, forMode: .common)
+            showEndTimer = timer
+            return
         }
+
+        guard let delay = nextDelay else { return }
+
+        let clampedDelay = max(delay, 0.5)
+
+        #if DEBUG
+        print("[RadioViewModel] Next refresh in: \(clampedDelay)s (raw: \(delay)s)")
+        #endif
+
+        let timer = Timer(timeInterval: clampedDelay, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.fetchLiveData()
+            }
+        }
+
+        RunLoop.main.add(timer, forMode: .common)
+        showEndTimer = timer
+    }
+
+    private func promoteStaleShowsIfPossible(referenceDate: Date) -> Bool {
+        var promoted = false
+
+        if let channel = nts1,
+           let end = channel.now.endDate,
+           end <= referenceDate,
+           let nextShow = channel.next.first {
+            let remaining = Array(channel.next.dropFirst())
+            nts1 = Channel(channelName: channel.channelName, now: nextShow, next: remaining)
+            promoted = true
+        }
+
+        if let channel = nts2,
+           let end = channel.now.endDate,
+           end <= referenceDate,
+           let nextShow = channel.next.first {
+            let remaining = Array(channel.next.dropFirst())
+            nts2 = Channel(channelName: channel.channelName, now: nextShow, next: remaining)
+            promoted = true
+        }
+
+        return promoted
     }
 
     private func startFallbackRefresh() {
-        // Fallback refresh every 5 minutes in case show end detection fails
         fallbackTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.fetchLiveData()
@@ -157,7 +200,11 @@ class RadioViewModel: ObservableObject {
     }
 
     func setVolume(_ volume: Float) {
-        audioPlayer.setVolume(volume)
+        let clamped = max(0, min(1, Double(volume)))
+        if abs(volumeLevel - clamped) > 0.0001 {
+            volumeLevel = clamped
+        }
+        audioPlayer.setVolume(Float(clamped))
     }
 
     private func updateMenuBarText() {
@@ -166,71 +213,16 @@ class RadioViewModel: ObservableObject {
         let station = "NTS\(stationNum)"
 
         guard let currentShow = currentChannel?.now else {
-            fullMenuBarText = "\(prefix)\(station)"
-            menuBarText = fullMenuBarText
-            marqueeTimer?.invalidate()
+            menuBarFullText = "\(prefix)\(station)"
             return
         }
 
         let title = currentShow.title
-        fullMenuBarText = "\(prefix)\(station): \(title)"
-
-        // If text is short enough, just display it
-        if fullMenuBarText.count <= 30 {
-            menuBarText = fullMenuBarText
-            marqueeTimer?.invalidate()
-        } else {
-            // Start marquee for long titles
-            startMenuBarMarquee()
-        }
-    }
-
-    private func startMenuBarMarquee() {
-        marqueeTimer?.invalidate()
-        marqueeOffset = 0
-
-        // Add spacing for seamless loop (separator added visually in MarqueeText)
-        let loopText = fullMenuBarText + "       "
-
-        marqueeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-
-            let maxLength = 30
-            let localOffset = self.marqueeOffset
-            let textCount = loopText.count
-
-            // Compute display text
-            let startIndex = loopText.index(loopText.startIndex, offsetBy: localOffset % textCount)
-            var displayText = ""
-
-            for i in 0..<min(maxLength, textCount) {
-                let endIndex = loopText.index(before: loopText.endIndex)
-                let idx = loopText.index(startIndex, offsetBy: i, limitedBy: endIndex)
-                if let idx = idx {
-                    displayText.append(loopText[idx])
-                } else {
-                    // Wrap around
-                    let wrapBase = (textCount - (localOffset % textCount))
-                    let wrapIdx = loopText.index(loopText.startIndex, offsetBy: i - wrapBase)
-                    displayText.append(loopText[wrapIdx])
-                }
-            }
-
-            let newOffset = localOffset + 1
-
-            // Update UI-related state on the main actor
-            Task { @MainActor [weak self, displayText, newOffset] in
-                guard let self = self else { return }
-                self.menuBarText = displayText
-                self.marqueeOffset = newOffset
-            }
-        }
+        menuBarFullText = "\(prefix)\(station): \(title)"
     }
 
     deinit {
         showEndTimer?.invalidate()
         fallbackTimer?.invalidate()
-        marqueeTimer?.invalidate()
     }
 }
-

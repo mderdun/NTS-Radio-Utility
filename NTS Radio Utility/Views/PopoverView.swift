@@ -1,3 +1,4 @@
+
 //
 //  PopoverView.swift
 //  NTS Radio Utility
@@ -76,21 +77,21 @@ struct PopoverView: View {
 
                             Slider(
                                 value: Binding(
-                                    get: { Double(viewModel.volume) },
+                                    get: { viewModel.volumeLevel },
                                     set: { viewModel.setVolume(Float($0)) }
                                 ),
                                 in: 0...1
                             )
                             .controlSize(.mini)
 
-                            Text("\(Int(viewModel.volume * 100))%")
+                            Text("\(Int(viewModel.volumeLevel * 100))%")
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundColor(.secondary)
                                 .frame(width: 28)
 
                             Button(action: {
-                                let new = max(0, viewModel.volume - 0.05)
-                                viewModel.setVolume(new)
+                                let new = max(0, viewModel.volumeLevel - 0.05)
+                                viewModel.setVolume(Float(new))
                             }) {
                                 Image(systemName: "minus.circle.fill")
                                     .font(.system(size: 10))
@@ -99,8 +100,8 @@ struct PopoverView: View {
                             .buttonStyle(.plain)
 
                             Button(action: {
-                                let new = min(1, viewModel.volume + 0.05)
-                                viewModel.setVolume(new)
+                                let new = min(1, viewModel.volumeLevel + 0.05)
+                                viewModel.setVolume(Float(new))
                             }) {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.system(size: 10))
@@ -236,6 +237,7 @@ struct ChannelCard: View {
     let onTap: () -> Void
     let onPlayPause: () -> Void
     @EnvironmentObject var viewModel: RadioViewModel
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Button(action: onTap) {
@@ -336,10 +338,18 @@ struct ChannelCard: View {
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundColor(isActive ? .secondary : .secondary.opacity(0.6))
                             .frame(height: 12)
+
+                        ShowProgressBar(startDate: startDate, endDate: endDate, isActive: isActive)
+                            .frame(height: 2)
+                            .padding(.top, 2)
                     } else {
                         Text(" ")
                             .font(.system(.caption2, design: .monospaced))
                             .frame(height: 12)
+
+                        Color.clear
+                            .frame(height: 2)
+                            .padding(.top, 2)
                     }
                 }
                 .padding(.top, 6)
@@ -367,6 +377,13 @@ struct ChannelCard: View {
             .opacity(isActive ? 1 : 0.6)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let url = channel.now.showURL {
+                Button("Open Show Page on NTS") {
+                    openURL(url)
+                }
+            }
+        }
     }
 
     private func formatTime(_ date: Date) -> String {
@@ -379,4 +396,38 @@ struct ChannelCard: View {
 #Preview {
     PopoverView()
         .environmentObject(RadioViewModel())
+}
+
+// MARK: - Timeline
+
+private struct ShowProgressBar: View {
+    let startDate: Date
+    let endDate: Date
+    let isActive: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: Date(), by: 30)) { timeline in
+            let progress = progress(at: timeline.date)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 2)
+
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(isActive ? Color.accentColor : Color.secondary.opacity(0.4))
+                        .frame(width: geometry.size.width * progress, height: 2)
+                }
+            }
+        }
+    }
+
+    private func progress(at date: Date) -> CGFloat {
+        let total = endDate.timeIntervalSince(startDate)
+        guard total > 0 else { return 0 }
+        let elapsed = date.timeIntervalSince(startDate)
+        let clamped = min(max(elapsed / total, 0), 1)
+        return CGFloat(clamped)
+    }
 }

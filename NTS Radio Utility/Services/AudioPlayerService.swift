@@ -1,3 +1,4 @@
+
 //
 //  AudioPlayerService.swift
 //  NTS Radio Utility
@@ -9,16 +10,24 @@ import Foundation
 import AVFoundation
 import Combine
 
+@MainActor
 class AudioPlayerService: NSObject, ObservableObject {
     static let shared = AudioPlayerService()
 
     override private init() {
         super.init()
-        // Restore saved preferences
-        volume = UserDefaults.standard.float(forKey: "savedVolume")
-        if volume == 0 { volume = 0.5 } // Default if never saved
-        currentStation = UserDefaults.standard.integer(forKey: "savedStation")
-        if currentStation == 0 { currentStation = 1 } // Default if never saved
+        if let storedVolume = UserDefaults.standard.object(forKey: "savedVolume") as? NSNumber {
+            volume = storedVolume.floatValue
+        } else {
+            volume = 0.5
+        }
+
+        if let storedStation = UserDefaults.standard.object(forKey: "savedStation") as? NSNumber {
+            let value = storedStation.intValue
+            currentStation = value == 0 ? 1 : value
+        } else {
+            currentStation = 1
+        }
         setupAudioSession()
     }
 
@@ -77,7 +86,6 @@ class AudioPlayerService: NSObject, ObservableObject {
             #endif
         }
         #else
-        // AVAudioSession is unavailable on macOS. No session setup is required for AVPlayer.
         #endif
     }
 
@@ -90,7 +98,7 @@ class AudioPlayerService: NSObject, ObservableObject {
             let playerItem = AVPlayerItem(asset: asset)
             observeMetadata(for: playerItem)
             player = AVPlayer(playerItem: playerItem)
-            player?.volume = volume
+            applyVolume()
 
             timeControlStatusObserver = player?.observe(\.timeControlStatus, options: [.initial, .new], changeHandler: { [weak self] player, _ in
                 DispatchQueue.main.async {
@@ -100,14 +108,15 @@ class AudioPlayerService: NSObject, ObservableObject {
                     case .playing:
                         self?.playerState = .playing
                     case .paused:
-                        if self?.isPlaying == false { self?.playerState = .paused }
+                        if self?.isPlaying == false {
+                            self?.playerState = .paused
+                        }
                     @unknown default:
                         break
                     }
                 }
             })
 
-            // Observe player status
             playerStatusObserver = player?.currentItem?.publisher(for: \.status)
                 .sink { [weak self] status in
                     DispatchQueue.main.async {
@@ -125,19 +134,14 @@ class AudioPlayerService: NSObject, ObservableObject {
                     }
                 }
 
-            // Observe time control status to reflect buffering/playing transitions
             #if DEBUG
             NotificationCenter.default.addObserver(forName: .AVPlayerItemNewAccessLogEntry, object: player?.currentItem, queue: .main) { _ in
-                if let log = self.player?.currentItem?.accessLog() {
-                    let events = log.events
-                    if let last = events.last {
-                        print("AccessLog: \(last)")
-                    }
+                if let log = self.player?.currentItem?.accessLog(), let last = log.events.last {
+                    print("AccessLog: \(last)")
                 }
             }
             #endif
         } else {
-            // Change stream
             let asset = AVURLAsset(url: streamURL, options: ["AVURLAssetHTTPHeaderFieldsKey": httpHeaders])
             let playerItem = AVPlayerItem(asset: asset)
             observeMetadata(for: playerItem)
@@ -146,8 +150,8 @@ class AudioPlayerService: NSObject, ObservableObject {
 
         player?.play()
 
+        #if DEBUG
         if let currentItem = player?.currentItem, let asset = currentItem.asset as? AVURLAsset {
-            #if DEBUG
             Task {
                 do {
                     let playable = try await asset.load(.isPlayable)
@@ -158,8 +162,8 @@ class AudioPlayerService: NSObject, ObservableObject {
                     print("Failed to load asset playability: \(error)")
                 }
             }
-            #endif
         }
+        #endif
 
         isPlaying = true
         playerState = .buffering
@@ -178,8 +182,12 @@ class AudioPlayerService: NSObject, ObservableObject {
         nowPlayingTitle = nil
         nowPlayingArtist = nil
         metadataObserver = nil
+        timeControlStatusObserver?.invalidate()
         timeControlStatusObserver = nil
+        playerStatusObserver?.cancel()
+        playerStatusObserver = nil
         playerState = .stopped
+        player = nil
     }
 
     func switchStation(to station: Int) {
@@ -199,7 +207,7 @@ class AudioPlayerService: NSObject, ObservableObject {
 
     func setVolume(_ newVolume: Float) {
         volume = max(0, min(1, newVolume))
-        player?.volume = volume
+        applyVolume()
     }
 
     func togglePlayPause() {
@@ -209,11 +217,17 @@ class AudioPlayerService: NSObject, ObservableObject {
             play(station: currentStation)
         }
     }
-    
+
     private func observeMetadata(for item: AVPlayerItem) {
         let metadataOutput = AVPlayerItemMetadataOutput()
         metadataOutput.setDelegate(self, queue: DispatchQueue.main)
         item.add(metadataOutput)
+    }
+
+    private func applyVolume() {
+        guard let player = player else { return }
+        player.volume = volume
+        player.isMuted = volume == 0
     }
 }
 
@@ -225,13 +239,12 @@ extension AudioPlayerService: AVPlayerItemMetadataOutputPushDelegate {
 
             for group in groups {
                 for meta in group.items {
-                    let keyString: String? = (meta.key as? String)?.lowercased()
+                    let keyString = (meta.key as? String)?.lowercased()
 
                     if let key = keyString {
                         if key.contains("title") {
                             let value = try? await meta.load(.stringValue)
                             if let value = value {
-                                // Some streams format as "Artist - Title"
                                 if value.contains(" - ") {
                                     let parts = value.split(separator: "-", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
                                     if parts.count == 2 {
@@ -250,7 +263,6 @@ extension AudioPlayerService: AVPlayerItemMetadataOutputPushDelegate {
                         }
                     }
 
-                    // Fallback by identifier
                     if let raw = meta.identifier?.rawValue as? String {
                         let id = raw.lowercased()
                         if id.contains("title"), title == nil {
@@ -263,7 +275,6 @@ extension AudioPlayerService: AVPlayerItemMetadataOutputPushDelegate {
                 }
             }
 
-            // Update published properties
             if title != nil || artist != nil {
                 self.nowPlayingTitle = title
                 self.nowPlayingArtist = artist
@@ -271,4 +282,3 @@ extension AudioPlayerService: AVPlayerItemMetadataOutputPushDelegate {
         }
     }
 }
-

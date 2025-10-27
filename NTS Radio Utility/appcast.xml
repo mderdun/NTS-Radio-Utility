@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>NTS Radio Utility</title>
+        <item>
+            <title>1.1</title>
+            <pubDate>Mon, 27 Oct 2025 17:31:12 +0000</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/mderdun/NTS-Radio-Utility/releases/download/v.1.1.0/NTS.Radio.Utility.dmg" length="1306921" type="application/octet-stream" sparkle:edSignature="noBeOFl+El4jAXn+RiCqvx8+S40gJCOWXD9xe0Z1rfFHWsvq+g4CdUhpDOU1EBjN3KT7nSQa2wpghIkBnFHdDQ=="/>
+        </item>
+    </channel>
+</rss>

@@ -1,6 +1,6 @@
 # NTS Radio Utility
 
-A clean, native macOS menu bar app for streaming NTS Radio.
+A clean macOS menu bar companion for NTS Radio.
 
 <p align="center">
   <img src="screenshot.png" alt="NTS Radio Utility" width="600">
@@ -21,20 +21,18 @@ A clean, native macOS menu bar app for streaming NTS Radio.
 ## Features
 
 ### 🎵 Dual Channel Streaming
-- Stream both NTS 1 and NTS 2
-- View both stations simultaneously in side-by-side cards
-- Quick station switching with visual feedback
+- Stream NTS 1 & 2 side-by-side with steady visuals
+- Lightweight player that tracks buffering and show handovers on time
 
 ### 📻 Live Show Information
-- Current show title, DJ/host, and location
-- Show artwork and timing
-- "Next up" preview with marquee scrolling
-- Auto-refresh when shows change (no manual refreshing needed!)
+- Promotes “next up” instantly when the API lags
+- Show art, location, and handoff progress bar
+- Menu bar ticker matches the popover title
 
 ### 🎛️ Native Controls
-- Play/pause with buffering indicator
-- Independent volume control (doesn't affect system volume)
-- Compact, Mac-native design
+- Play/pause with clear buffering state
+- Volume slider with scroll-wheel nudging
+- Context menu shortcuts to the NTS show page
 
 ### ⌨️ Keyboard Shortcuts
 - **Space**: Play/pause
@@ -43,9 +41,9 @@ A clean, native macOS menu bar app for streaming NTS Radio.
 - **⌘,**: Open settings
 
 ### ⚙️ Settings
-- **Launch at Login**: Start NTS Radio Utility automatically
-- **Auto-play on Launch**: Begin playing immediately when app opens
-- Volume and station preferences saved between sessions
+- Launch and auto-play toggles
+- Remembers preferred station & volume
+- About tab clarifies this is an unofficial, fan-made project
 
 ## Requirements
 

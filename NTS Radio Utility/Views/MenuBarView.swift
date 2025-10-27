@@ -11,8 +11,15 @@ struct MenuBarView: View {
     @EnvironmentObject var viewModel: RadioViewModel
 
     var body: some View {
-        Text(viewModel.menuBarText)
-            .font(.system(size: 13, weight: .medium, design: .rounded))
+        MarqueeText(
+            text: viewModel.menuBarFullText,
+            font: .system(size: 13, weight: .medium, design: .rounded),
+            color: .primary,
+            speed: 44,
+            gap: 40,
+            initialDelay: 0.8
+        )
+        .frame(width: 150, alignment: .leading)
     }
 }
 

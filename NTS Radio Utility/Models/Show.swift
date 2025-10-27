@@ -45,6 +45,13 @@ struct Show: Codable, Identifiable {
         ISO8601DateFormatter().date(from: endTimestamp)
     }
 
+    var showURL: URL? {
+        if let alias = embeds.details.showAlias {
+            return URL(string: "https://www.nts.live/shows/\(alias)")
+        }
+        return nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case broadcastTitle = "broadcast_title"
         case startTimestamp = "start_timestamp"
@@ -63,6 +70,7 @@ struct ShowDetails: Codable {
     let locationShort: String?
     let locationLong: String?
     let media: ShowMedia
+    let showAlias: String?
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -70,6 +78,7 @@ struct ShowDetails: Codable {
         case locationShort = "location_short"
         case locationLong = "location_long"
         case media
+        case showAlias = "show_alias"
     }
 }
 

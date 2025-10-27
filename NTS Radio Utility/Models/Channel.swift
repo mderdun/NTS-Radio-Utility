@@ -26,6 +26,12 @@ struct Channel: Codable, Identifiable {
         case now
     }
 
+    init(channelName: String, now: Show, next: [Show]) {
+        self.channelName = channelName
+        self.now = now
+        self.next = next
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         channelName = try container.decode(String.self, forKey: .channelName)

@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import Sparkle
 
 @main
 struct NTS_Radio_UtilityApp: App {
     @StateObject private var viewModel = RadioViewModel()
     @AppStorage("autoPlayOnLaunch") private var autoPlayOnLaunch = false
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     init() {
         // Auto-play on launch if enabled
@@ -30,5 +32,14 @@ struct NTS_Radio_UtilityApp: App {
                 .environmentObject(viewModel)
         }
         .menuBarExtraStyle(.window)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
+
+        Settings {
+            UpdaterSettingsView(updater: updaterController.updater)
+        }
     }
 }
